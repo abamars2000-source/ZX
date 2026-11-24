@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --zx-bg: #F8F9FC;
+    --zx-surface: #FFFFFF;
+    --zx-surface-elevated: #F1F2F8;
+    --zx-border: #E2E4EE;
+    --zx-text: #080810;
+    --zx-text-muted: #5A5B6E;
+    --zx-purple: #792BFF;
+    --zx-pink: #FF28B9;
+    --zx-silver: #E8E8F2;
+  }
+
+  .dark {
+    --zx-bg: #080810;
+    --zx-surface: #101020;
+    --zx-surface-elevated: #16162A;
+    --zx-border: rgba(232, 232, 242, 0.1);
+    --zx-text: #FFFFFF;
+    --zx-text-muted: #A2A3B8;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--zx-bg);
+    color: var(--zx-text);
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Outfit', 'Noto Sans Devanagari', sans-serif;
+  }
+
+  .font-mono-tabular {
+    font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.zx-gradient-text {
+  background: linear-gradient(135deg, #E8E8F2 0%, #792BFF 52%, #FF28B9 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.zx-gradient-bg {
+  background: linear-gradient(135deg, #792BFF 0%, #FF28B9 100%);
+}
+
+.zx-story-ring {
+  background: linear-gradient(135deg, #792BFF 0%, #FF28B9 55%, #E8E8F2 100%);
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 43, 255, 0.28);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 40, 185, 0.48);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

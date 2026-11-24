@@ -1,0 +1,6 @@
+{
+  "name": "ZX — India's Social Universe",
+  "description": "India's next-generation social networking platform combining Home visual feeds, ZX discussions & threads, vertical Shorts, and real-time private messaging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

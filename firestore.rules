@@ -1,0 +1,233 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1 / Safety Net: Global default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Pillar 3: Hardened global primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'abamars2000@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Pillar 2: Validation Blueprints (synced with firebase-blueprint.json)
+    function isValidPublicProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'username', 'fullName', 'language', 'isPrivate', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'username', 'fullName', 'bio', 'avatarUrl', 'language', 'isPrivate', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.username is string && data.username.size() >= 3 && data.username.size() <= 30 && data.username.matches('^[a-z0-9_]+$')
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 80
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 300))
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 1000))
+        && data.language in ['hi', 'en']
+        && data.isPrivate is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAiThread(data, userId, threadId) {
+      return data.keys().hasAll(['id', 'ownerId', 'title', 'model', 'systemInstruction', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'title', 'model', 'systemInstruction', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == threadId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 120
+        && data.model in ['gemini-4-hydrogen', 'gemini-3.1-flash-lite']
+        && data.systemInstruction is string && data.systemInstruction.size() <= 2000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAiMessage(data, userId, threadId, messageId) {
+      return data.keys().hasAll(['id', 'threadId', 'ownerId', 'role', 'content', 'model', 'createdAt'])
+        && data.keys().hasOnly(['id', 'threadId', 'ownerId', 'role', 'content', 'model', 'createdAt'])
+        && isValidId(data.id)
+        && data.id == messageId
+        && isValidId(data.threadId)
+        && data.threadId == threadId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.role in ['user', 'model']
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 16000
+        && data.model is string && data.model.size() >= 1 && data.model.size() <= 64
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAiTranscript(data, userId, transcriptId) {
+      return data.keys().hasAll(['id', 'ownerId', 'transcript', 'mimeType', 'durationSec', 'createdAt'])
+        && data.keys().hasOnly(['id', 'ownerId', 'transcript', 'mimeType', 'durationSec', 'createdAt'])
+        && isValidId(data.id)
+        && data.id == transcriptId
+        && isValidId(data.ownerId)
+        && data.ownerId == userId
+        && data.transcript is string && data.transcript.size() >= 1 && data.transcript.size() <= 16000
+        && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 64
+        && data.durationSec is number && data.durationSec >= 0 && data.durationSec <= 7200
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAdminRecord(data, adminId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt'])
+        && isValidId(data.uid)
+        && data.uid == adminId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp;
+    }
+
+    // Admin registry
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && isValidId(adminId)
+        && isValidAdminRecord(incoming(), adminId)
+        && incoming().createdAt == request.time;
+      allow update: if isAdmin()
+        && isValidId(adminId)
+        && isValidAdminRecord(incoming(), adminId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt;
+      allow delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // Connection validation probe doc (read-only ping)
+    match /test/connection {
+      allow get: if isSignedIn();
+    }
+
+    // User scoped collections with Split Collection PII isolation
+    match /users/{userId} {
+      match /public/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId)
+          && isVerifiedUser()
+          && (existing().isPrivate == false || isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(userId) && isValidId(docId)
+          && docId == 'profile'
+          && (isOwner(userId) || isAdmin())
+          && isValidPublicProfile(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(docId)
+          && docId == 'profile'
+          && (isOwner(userId) || isAdmin())
+          && isValidPublicProfile(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'fullName', 'bio', 'avatarUrl', 'language', 'isPrivate', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      }
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(userId) && isValidId(docId)
+          && docId == 'info'
+          && (isOwner(userId) || isAdmin())
+          && isValidPrivateInfo(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(docId)
+          && docId == 'info'
+          && (isOwner(userId) || isAdmin())
+          && isValidPrivateInfo(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      }
+
+      match /aiThreads/{threadId} {
+        allow get: if isValidId(userId) && isValidId(threadId) && (isOwner(userId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(userId) && isValidId(threadId)
+          && (isOwner(userId) || isAdmin())
+          && isValidAiThread(incoming(), userId, threadId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(threadId)
+          && (isOwner(userId) || isAdmin())
+          && isValidAiThread(incoming(), userId, threadId)
+          && incoming().id == existing().id
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            isAdmin() ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'model', 'systemInstruction', 'updatedAt'])
+          );
+        allow delete: if isValidId(userId) && isValidId(threadId) && (isOwner(userId) || isAdmin());
+
+        // Master Gate: require existing parent AiThread owned by the same user
+        match /messages/{messageId} {
+          allow get: if isValidId(userId) && isValidId(threadId) && isValidId(messageId)
+            && (isOwner(userId) || isAdmin())
+            && get(/databases/$(database)/documents/users/$(userId)/aiThreads/$(threadId)).data.ownerId == userId;
+          allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+          allow create: if isValidId(userId) && isValidId(threadId) && isValidId(messageId)
+            && (isOwner(userId) || isAdmin())
+            && isValidAiMessage(incoming(), userId, threadId, messageId)
+            && incoming().createdAt == request.time
+            && get(/databases/$(database)/documents/users/$(userId)/aiThreads/$(threadId)).data.ownerId == userId;
+          allow update: if false;
+          allow delete: if isValidId(userId) && isValidId(threadId) && isValidId(messageId)
+            && (isOwner(userId) || isAdmin());
+        }
+      }
+
+      match /aiTranscripts/{transcriptId} {
+        allow get: if isValidId(userId) && isValidId(transcriptId) && (isOwner(userId) || isAdmin());
+        allow list: if isVerifiedUser() && (resource.data.ownerId == request.auth.uid || isAdmin());
+        allow create: if isValidId(userId) && isValidId(transcriptId)
+          && (isOwner(userId) || isAdmin())
+          && isValidAiTranscript(incoming(), userId, transcriptId)
+          && incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(transcriptId) && (isOwner(userId) || isAdmin());
+      }
+    }
+  }
+}
